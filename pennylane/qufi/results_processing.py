@@ -7,6 +7,7 @@ from matplotlib import rcParams, colors
 from multiprocessing import Pool, cpu_count
 from multiprocessing.pool import ThreadPool
 from os import scandir
+from itertools import product
 
 rcParams.update({'figure.autolayout': True})
 rcParams['pdf.fonttype'] = 42
@@ -20,12 +21,17 @@ def compute_QVF_michelson_contrast_single_injection(df, circuit_name, phi, theta
     dfFilter = df[(df.circuit_name==circuit_name) & (df.first_phi==phi) & (df.first_theta==theta)]
     QVF = {}
     QVF['QVF_circuit'] = dfFilter['QVF'].mean()
-    
-    qubits = set(dfFilter['first_qubit_injected'])    
-    for q in qubits:
-        QVF['QVF_qubit_'+str(q)] = dfFilter[dfFilter.first_qubit_injected==q]['QVF'].mean()
+
+    indexes = set(dfFilter['indexes'])
+    wires = set(dfFilter['first_qubit_injected'])
+    indexes_wires = product(indexes, wires)
+    for i, q in indexes_wires:
+        QVF['QVF_qubit_'+str(q)+'_index_'+str(i)] = dfFilter[(dfFilter.indexes==i) & (dfFilter.first_qubit_injected==q)]['QVF'].mean()
+        # if pd.isna(QVF['QVF_qubit_'+str(q)+'_index_'+str(i)]):
+        #     print(QVF['QVF_qubit_'+str(q)+'_index_'+str(i)])
+
     return QVF
-    
+
 
 def compute_QVF_michelson_contrast_double_injection(df, circuit_name, phi_0, theta_0, phi_1, theta_1):
     """Compute the new QVF for the whole circuit, as well as for each available qubit"""
@@ -43,27 +49,78 @@ def QVF_michelson_contrast(gold_bitstring, answer, shots):
     """Compute Michelson contrast between gold and highest percentage fault string"""
     # Sort the answer, position 0 has the highest bitstring, position 1 the second highest
     answer_sorted = sorted(answer, key=answer.get, reverse=True)
-    
+
     # If gold bitstring is not in answer, percentage is zero
     if gold_bitstring not in answer:
         good_percent = 0
     else:
         good_percent = answer[gold_bitstring]/shots
-        
-    if answer_sorted[0] == gold_bitstring: # gold bitstring has the highest count (max)
-        # next bitstring is the second highest
-        next_percent = answer[answer_sorted[1]]/shots 
-        next_bitstring = answer_sorted[1]
-    else: # gold bitstring has NOT the highest count (not max)
-        next_percent = answer[answer_sorted[0]]/shots 
+
+    if len(answer_sorted) == 1:
+        if answer_sorted[0] == gold_bitstring:
+            qvf = 1
+        else:
+            qvf = -1
+        next_bitstring = None
+    else:
+        if answer_sorted[0] == gold_bitstring: # gold bitstring has the highest count (max)
+            # next bitstring is the second highest
+            next_percent = answer[answer_sorted[1]]/shots
+            next_bitstring = answer_sorted[1]
+        else: # gold bitstring has NOT the highest count (not max)
+            next_percent = answer[answer_sorted[0]]/shots
         next_bitstring = answer_sorted[0]
-    qvf = (good_percent - next_percent) / (good_percent + next_percent)    
+        qvf = (good_percent - next_percent) / (good_percent + next_percent)
     return 1 - (qvf+1)/2, next_bitstring
-    
+
 def build_DF_newQVF(data):
     """Read pickled data and store results in a dataframe"""
     results = []
     shots = 1024
+
+    gold_bitstring = max(data['output_gold_noise'], key=data['output_gold_noise'].get)#check
+    original_gold_percentage = data['output_gold_noise'][gold_bitstring]/shots
+
+    for i, answer in enumerate(data['output_injections']):
+        qvf, next_bitstring = QVF_michelson_contrast(gold_bitstring, answer, shots)
+        max_key = max(answer, key=answer.get)
+        output_percentage = answer[max_key]/shots
+        if next_bitstring is None:
+            next_bitstring_percentage = 0
+        else:
+            next_bitstring_percentage = answer[next_bitstring]/shots
+        if gold_bitstring not in answer:
+            gold_percentage = 0
+        else:
+            gold_percentage = answer[gold_bitstring]/shots
+            
+        result = {'gold_bitstring':gold_bitstring
+            , 'gold_count_percentage':gold_percentage
+            , 'original_gold_count_percentage':original_gold_percentage
+            , 'next_bitstring': next_bitstring
+            , 'next_bitstring_percentage': next_bitstring_percentage
+            , 'QVF':qvf
+            , 'first_qubit_injected':data['wires'][i]
+            , 'first_phi':data['phi0']
+            , 'first_theta':data['theta0']
+            , 'indexes':data['indexes'][i]
+            , 'second_qubit_injected':data['second_wires'][i]
+            , 'second_phi':0
+            , 'second_theta':0
+            #, 'gate_injected':data['circuits_injections'][i].metadata['gate_inserted']
+            #, 'lambda':data['circuits_injections'][i].metadata['lambda']
+            , 'circuit_name':data['name']
+        }
+        results.append(result)
+    return pd.DataFrame(results)
+
+def build_DF_newQVF_noise(data):
+    """Read pickled data and store results in a dataframe"""
+    results = []
+    shots = 1024
+
+    # print(data)
+
     gold_bitstring = max(data['output_gold_noise'], key=data['output_gold_noise'].get)#check
     original_gold_percentage = data['output_gold_noise'][gold_bitstring]/shots
 
@@ -72,26 +129,31 @@ def build_DF_newQVF(data):
         max_key = max(answer, key=answer.get)
         output_percentage = answer[max_key]/shots
         next_bitstring_percentage = answer[next_bitstring]/shots
+        if next_bitstring is None:
+            next_bitstring_percentage = 0
+        else:
+            next_bitstring_percentage = answer[next_bitstring]/shots
         if gold_bitstring not in answer:
             gold_percentage = 0
         else:
             gold_percentage = answer[gold_bitstring]/shots
         result = {'gold_bitstring':gold_bitstring
-                , 'gold_count_percentage':gold_percentage
-                , 'original_gold_count_percentage':original_gold_percentage
-                , 'next_bitstring': next_bitstring
-                , 'next_bitstring_percentage': next_bitstring_percentage
-                , 'QVF':qvf
-                , 'first_qubit_injected':data['wires'][i]
-                , 'first_phi':data['phi0']
-                , 'first_theta':data['theta0']
-                , 'second_qubit_injected':data['second_wires'][i]
-                , 'second_phi':data['phi1']
-                , 'second_theta':data['theta1']
-                #, 'gate_injected':data['circuits_injections'][i].metadata['gate_inserted']
-                #, 'lambda':data['circuits_injections'][i].metadata['lambda']
-                , 'circuit_name':data['name']
-                }
+            , 'gold_count_percentage':gold_percentage
+            , 'original_gold_count_percentage':original_gold_percentage
+            , 'next_bitstring': next_bitstring
+            , 'next_bitstring_percentage': next_bitstring_percentage
+            , 'QVF':qvf
+            , 'first_qubit_injected':data['wires'][i]
+            , 'first_phi':data['phi']
+            , 'first_theta':data['theta']
+            , 'indexes':data['indexes'][i]
+            , 'second_qubit_injected':data['second_wires'][i]
+            , 'second_phi':0
+            , 'second_theta':0
+            #, 'gate_injected':data['circuits_injections'][i].metadata['gate_inserted']
+            #, 'lambda':data['circuits_injections'][i].metadata['lambda']
+            , 'circuit_name':data['name']
+            }
         results.append(result)
     return pd.DataFrame(results)
 
@@ -102,18 +164,25 @@ def filter_single_fi(results):
 
 def read_file(filename):
     """Read a partial result file"""
+    noise = False
     df_newQVF = pd.DataFrame()
     data = pickle.load(gzip.open(filename, 'r'))
-    for d in data:
-        df_newQVF = pd.concat([df_newQVF, build_DF_newQVF(d)], ignore_index=True)
-    del data
+    if noise:
+        for d in data:
+            df_newQVF = pd.concat([df_newQVF, build_DF_newQVF_noise(d)], ignore_index=True)
+        del data
+    else:
+        for d in data:
+            df_newQVF = pd.concat([df_newQVF, build_DF_newQVF(d)], ignore_index=True)
+        del data
     return df_newQVF
 
-def read_results_directory(dir):
+def read_results_directory(dir, noise=False):
     """Process double fault injection results directory and return all data"""
     filenames = []
     for filename in scandir(dir):
         if filename.is_file():
+            # print(filename.path)
             filenames.append(filename.path)
 
     pool = Pool(cpu_count())
@@ -200,7 +269,7 @@ def compute_merged_histogram(circs, savepath="./plots/histograms/"):
 
     # comparing distribution of single FI vs double FI
     if not os.path.exists(savepath):
-        os.makedirs(savepath) 
+        os.makedirs(savepath)
     tmpFileName = savepath+circs[0].circuit_name[0]+'_merged_distribution_histogram'+'.pdf'
     fig.savefig(tmpFileName, bbox_inches = 'tight')
     plt.close()
@@ -213,7 +282,7 @@ def compute_circuit_heatmaps(circs, savepath="./plots/heatmaps/"):
                 , '', '$\\frac{3\pi}{4}$', '', '', '$\pi$']
     phi_list_tex = ['', '', '$\\frac{7\pi}{4}$', '', ''
                 , '$\\frac{6\pi}{4}$', '', '', '$\\frac{5\pi}{4}$', ''
-                , '', '$\pi$', '', '',  '$\\frac{3\pi}{4}$'  
+                , '', '$\pi$', '', '',  '$\\frac{3\pi}{4}$'
                 , '', '', '$\\frac{\pi}{2}$', '', '', '$\\frac{\pi}{4}$'
                 , '', '', '0']
 
@@ -244,10 +313,10 @@ def compute_circuit_delta_heatmaps(circs, savepath="./plots/deltaHeatmaps/"):
                 , '', '$\\frac{3\pi}{4}$', '', '', '$\pi$']
     phi_list_tex = ['', '', '$\\frac{7\pi}{4}$', '', ''
                 , '$\\frac{6\pi}{4}$', '', '', '$\\frac{5\pi}{4}$', ''
-                , '', '$\pi$', '', '',  '$\\frac{3\pi}{4}$'  
+                , '', '$\pi$', '', '',  '$\\frac{3\pi}{4}$'
                 , '', '', '$\\frac{\pi}{2}$', '', '', '$\\frac{\pi}{4}$'
                 , '', '', '0']
-    
+
     qvf_single_fi = circs[0]
     qvf_double_fi = circs[1]
 
@@ -260,13 +329,13 @@ def compute_circuit_delta_heatmaps(circs, savepath="./plots/deltaHeatmaps/"):
     fig, ax = plt.subplots(1, 1, figsize=(6, 5))
     label = '$\Delta$QVF = Double - Single'
     param={'label': label}
-    ax = sns.heatmap(qvf_tmp, xticklabels=theta_list_tex, yticklabels=phi_list_tex, cmap='seismic', cbar_kws=param, vmin=-1, vmax=1)            
+    ax = sns.heatmap(qvf_tmp, xticklabels=theta_list_tex, yticklabels=phi_list_tex, cmap='seismic', cbar_kws=param, vmin=-1, vmax=1)
     plt.axhline(y=9.5, color="blue", linestyle="--")       #T at phi=pi/4
-    plt.text(13.25, 9.7, r'$T$', fontsize=10, color="blue")            
-    plt.axhline(y=6.5, color="black", linestyle="--")      #S at phi=pi/2  
-    plt.text(13.25, 6.7, r'$S$', fontsize=10, color="black")       
-    plt.axhline(y=0.5, color="cyan", linestyle="--")       #Z at phi=pi   
-    plt.text(13.25, 0.7, r'$Z$', fontsize=10, color="cyan")          
+    plt.text(13.25, 9.7, r'$T$', fontsize=10, color="blue")
+    plt.axhline(y=6.5, color="black", linestyle="--")      #S at phi=pi/2
+    plt.text(13.25, 6.7, r'$S$', fontsize=10, color="black")
+    plt.axhline(y=0.5, color="cyan", linestyle="--")       #Z at phi=pi
+    plt.text(13.25, 0.7, r'$Z$', fontsize=10, color="cyan")
     plt.axvline(x=12.5, color="purple", linestyle="--")     #X,Y at theta=pi
     plt.text(12, -0.5, r'$X, Y$', fontsize=10, color="purple")
     if not os.path.exists(savepath):
@@ -283,16 +352,16 @@ def compute_qubit_histograms(circs, savepath="./plots/histograms/"):
         circuits, theta_list, phi_list = get_circuits_angles(df)
         for circuit in circuits:
             # get a list of qubit columns (circuit may have different number of qubits now)
-            colNames = df[df['circuit_name']==circuit].dropna(axis=1).columns    
+            colNames = df[df['circuit_name']==circuit].dropna(axis=1).columns
             QVF_list= ['QVF_circuit']
             QVF_list.extend( [x for x in colNames if re.search('QVF_qubit_.*',x)] ) # uncomment this line to include individual qubit analysis
-            
+
             for qvf_idx in QVF_list:
                 qvf_tmp = df[df['circuit_name']==circuit]
                 qvf_tmp = qvf_tmp.pivot('first_phi', 'first_theta', qvf_idx)
                 qvf_tmp.columns.name = '$\\theta$ shift'
                 qvf_tmp.index.name = '$\\phi$ shift'
-                
+
                 all_values = []
                 for column in qvf_tmp:
                     this_column_values = qvf_tmp[column].tolist()
@@ -318,18 +387,20 @@ def compute_qubit_heatmaps(circs, savepath="./plots/heatmaps/"):
                     , '', '$\\frac{3\pi}{4}$', '', '', '$\pi$']
     phi_list_tex = ['', '', '$\\frac{7\pi}{4}$', '', ''
                 , '$\\frac{6\pi}{4}$', '', '', '$\\frac{5\pi}{4}$', ''
-                , '', '$\pi$', '', '',  '$\\frac{3\pi}{4}$'  
+                , '', '$\pi$', '', '',  '$\\frac{3\pi}{4}$'
                 , '', '', '$\\frac{\pi}{2}$', '', '', '$\\frac{\pi}{4}$'
                 , '', '', '0']
 
     for df, type_inj in zip(circs, ["single", "double"]):
         circuits, theta_list, phi_list = get_circuits_angles(df)
+        # print(df)
         for circuit in circuits:
             # get a list of qubit columns (circuit may have different number of qubits now)
-            colNames = df[df['circuit_name']==circuit].dropna(axis=1).columns    
+            colNames = df[df['circuit_name']==circuit].dropna(axis=0).columns
             QVF_list= ['QVF_circuit']
-            QVF_list.extend( [x for x in colNames if re.search('QVF_qubit_.*',x)] ) # uncomment this line to include individual qubit analysis
-            
+            # uncomment this line to include individual qubit analysis
+            QVF_list.extend( [x for x in colNames if re.search('QVF_qubit_.*',x)] )
+
             for qvf_idx in QVF_list:
                 qvf_tmp = df[df['circuit_name']==circuit]
                 qvf_tmp = qvf_tmp.pivot('first_phi', 'first_theta', qvf_idx)
@@ -342,7 +413,44 @@ def compute_qubit_heatmaps(circs, savepath="./plots/heatmaps/"):
                 rdgn = sns.diverging_palette(h_neg=130, h_pos=10, s=200, l=55, sep=20, as_cmap=True)
                 sns.set(font_scale=1.3)
                 ax = sns.heatmap(qvf_tmp, xticklabels=theta_list_tex, yticklabels=phi_list_tex, cmap=rdgn, cbar_kws=param, vmin=0, vmax=1)
-                fig.savefig(savepath+circuit+'_'+qvf_idx+'_'+type_inj+'_heatmap.pdf', bbox_inches='tight')
+                fig.savefig(savepath+circuit+'_'+qvf_idx+'_'+type_inj+'_heatmap_new.pdf', bbox_inches='tight')
+                plt.close()
+
+def compute_index_heatmaps(circs, savepath="./plots/heatmaps/"):
+    """Compute single qubit histograms for single and double FI"""
+
+    # print(circs)
+
+    theta_list_tex = ['0', '', '', '$\\frac{\pi}{4}$', '', '', '$\\frac{\pi}{2}$', ''
+                    , '', '$\\frac{3\pi}{4}$', '', '', '$\pi$']
+    phi_list_tex = ['', '', '$\\frac{7\pi}{4}$', '', ''
+                , '$\\frac{6\pi}{4}$', '', '', '$\\frac{5\pi}{4}$', ''
+                , '', '$\pi$', '', '',  '$\\frac{3\pi}{4}$'
+                , '', '', '$\\frac{\pi}{2}$', '', '', '$\\frac{\pi}{4}$'
+                , '', '', '0']
+
+    # for df, type_inj in zip(circs, ["single", "double"]):
+    for df, type_inj in zip(circs, ["single"]):
+        circuits, theta_list, phi_list = get_circuits_angles(df)
+        for circuit in circuits:
+            # get a list of qubit columns (circuit may have different number of qubits now)
+            colNames = df[df['circuit_name']==circuit].dropna(axis=1).columns
+            QVF_list= ['QVF_circuit']
+            QVF_list.extend( [x for x in colNames if re.search('QVF_qubit_.*',x)] ) # uncomment this line to include individual qubit analysis
+
+            for qvf_idx in QVF_list:
+                qvf_tmp = df[df['circuit_name']==circuit]
+                qvf_tmp = qvf_tmp.pivot('first_phi', 'first_theta', qvf_idx)
+                qvf_tmp.columns.name = '$\\theta$ shift'
+                qvf_tmp.index.name = '$\\phi$ shift'
+                fig, ax = plt.subplots(1, 1, figsize=(6, 5))
+                param={'label': 'QVF'}
+
+                divnorm = colors.TwoSlopeNorm(vmin=0, vcenter=0.5, vmax=1)
+                rdgn = sns.diverging_palette(h_neg=130, h_pos=10, s=200, l=55, sep=20, as_cmap=True)
+                sns.set(font_scale=1.3)
+                ax = sns.heatmap(qvf_tmp, xticklabels=theta_list_tex, yticklabels=phi_list_tex, cmap=rdgn, cbar_kws=param, vmin=0, vmax=1)
+                fig.savefig(savepath+circuit+'_'+qvf_idx+'_'+type_inj+'_heatmap_new_index.pdf', bbox_inches='tight')
                 plt.close()
 
 #%%
@@ -351,12 +459,13 @@ def generate_all_statistics(results, savepath="./plots"):
     """Call process_results only once and compute all histograms and heatmaps"""
     circs = [process_results(filter_single_fi(results)), process_results(results)]
 
-    compute_merged_histogram(circs, f"{savepath}/histograms/")
-    compute_circuit_heatmaps(circs, f"{savepath}/heatmaps/")
-    compute_circuit_delta_heatmaps(circs, f"{savepath}/deltaHeatmaps/")
-    compute_qubit_histograms(circs, f"{savepath}/histograms/")
-    compute_qubit_heatmaps(circs, f"{savepath}/heatmaps/")
-    
+    # compute_merged_histogram(circs, f"{savepath}/histograms/")
+    # compute_circuit_heatmaps(circs, f"{savepath}/heatmaps/")
+    # compute_circuit_delta_heatmaps(circs, f"{savepath}/deltaHeatmaps/")
+    # compute_qubit_histograms(circs, f"{savepath}/histograms/")
+    # compute_qubit_heatmaps(circs, f"{savepath}/heatmaps/")
+    compute_index_heatmaps(circs, f"{savepath}/heatmaps_index/")
+
 
 # %%
 

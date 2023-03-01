@@ -10,7 +10,7 @@ class BernsteinVazirani:
     def build_circuit(n=default_n, s=default_s):
         #n = 9 # number of qubits used to represent s
         #s = '011011011'   # the hidden binary string
-        
+
         # We need a circuit with n qubits, plus one auxiliary qubit
         dev = qml.device("lightning.qubit", wires=n+1)
 
@@ -23,7 +23,7 @@ class BernsteinVazirani:
             # Apply Hadamard gates before querying the oracle
             for i in range(n):
                 qml.Hadamard(wires=i)
-            
+
             # Apply the inner-product oracle
             si = s[::-1] # reverse s to fit qiskit's qubit ordering
             for q in range(n):
@@ -31,7 +31,7 @@ class BernsteinVazirani:
                     qml.Identity(wires=q)
                 else:
                     qml.CNOT(wires=[q, n])
-            
+
             #Apply Hadamard gates after querying the oracle
             for i in range(n):
                 qml.Hadamard(wires=i)
@@ -48,41 +48,41 @@ class DeutschJozsa:
     default_s = '101'
 
     def build_circuit(n=default_n, s=default_s):
-        # set the length of the n-bit input string. 
+        # set the length of the n-bit input string.
         #n = 9
-        
+
         # We need a circuit with n qubits, plus one auxiliary qubit
         dev = qml.device("lightning.qubit", wires=n+1)
 
         @qml.qnode(dev)
-        def circuit():        
+        def circuit():
             # Apply H-gates
             for qubit in range(n):
                 qml.Hadamard(wires=qubit)
-            
+
             # Put qubit in state |->
             qml.PauliX(wires=n)
             qml.Hadamard(wires=n)
-            
+
             # Add oracle
             # Place X-gates
             for qubit in range(len(s)):
                 if s[qubit] == '1':
                     qml.PauliX(wires=qubit)
-            
+
             # Controlled-NOT gates
             for qubit in range(n):
                 qml.CNOT(wires=[qubit, n])
-                    
+
             # Place X-gates
             for qubit in range(len(s)):
                 if s[qubit] == '1':
                     qml.PauliX(wires=qubit)
-            
+
             # Repeat H-gates
             for qubit in range(n):
                 qml.Hadamard(wires=qubit)
-            
+
             return qml.probs(wires=range(n))
 
         circuit()
@@ -112,7 +112,7 @@ class Grover:
             qml.Hadamard(wires=0)
             qml.PauliX(wires=1)
             qml.Hadamard(wires=1)
-            
+
             return qml.probs(wires=range(2))
 
         circuit()
@@ -132,7 +132,7 @@ class IQFT:
         # At the end of our function, we call the same function again on
         # the next qubits (we reduced n by one earlier in the function)
         IQFT.qft_rotations(wires)
-        
+
     def swap_registers(wires):
         for qubit in range(wires//2):
             qml.SWAP(wires=[qubit, wires-qubit-1])
@@ -178,5 +178,179 @@ class Bell:
             return qml.probs(wires=1)
 
         circuit()
+
+        return circuit
+
+class Google:
+
+    default_n = 3
+
+    def build_circuit(n=default_n):
+        n=2
+        dev = qml.device("lightning.qubit", wires=n)
+
+        @qml.qnode(dev)
+        def circuit():
+            # for i in range(n):
+            #     qml.PauliX(wires=i)
+
+            # qml.CNOT(wires=[2, 1])
+
+            # qml.Hadamard(wires=1)
+            # qml.Hadamard(wires=0)
+
+            # qml.RZ(pi/2, wires=0)
+            # qml.SX(wires=0)
+            # qml.RZ(pi/2, wires=0)
+
+            # qml.RZ(pi/4, wires=0)
+            # qml.Hadamard(wires=0)
+            # qml.SX(wires=0)
+            # qml.RZ(pi/2, wires=0)
+
+            # qml.Identity(0)
+            # qml.Identity(0)
+
+            # qml.Hadamard(wires=0)
+
+            # Measurement
+            qml.U3(theta=0.685, phi=1.77, delta=0, wires=0)
+            qml.U3(theta=0.685, phi=1.77, delta=0, wires=0)
+            qml.PauliX(wires=0)
+            qml.CNOT(wires=[0, 1])
+            # qml.U3(theta=1.17, phi=2.54, delta=0, wires=0)
+
+            return qml.probs(wires=range(n))
+
+        circuit()
+
+        return circuit
+    
+class Google_0:
+
+    def build_circuit():
+        n=1
+        dev = qml.device("lightning.qubit", wires=n)
+
+        @qml.qnode(dev)
+        def circuit():
+            qml.RZ(pi/2, wires=0)
+            qml.SX(wires=0)
+            qml.RZ(pi/2, wires=0)
+            qml.Hadamard(wires=0)
+
+            return qml.probs(wires=range(n))
+            return qml.state()
+
+        circuit()
+
+        return circuit
+    
+class Google_1:
+
+    def build_circuit():
+        n=1
+        dev = qml.device("lightning.qubit", wires=n)
+
+        @qml.qnode(dev)
+        def circuit():
+            qml.Hadamard(wires=0)
+            qml.Hadamard(wires=0)
+
+            return qml.probs(wires=range(n))
+            return qml.state()
+
+        circuit()
+
+        return circuit
+    
+class Google_2:
+
+    def build_circuit():
+        n=1
+        dev = qml.device("lightning.qubit", wires=n)
+
+        @qml.qnode(dev)
+        def circuit():
+            qml.Hadamard(wires=0)
+            qml.PauliZ(wires=0)
+            qml.Hadamard(wires=0)
+
+            return qml.probs(wires=range(n))
+            return qml.state()
+
+        circuit()
+
+        return circuit
+    
+class Google_3:
+
+    def build_circuit():
+        n=2
+        dev = qml.device("lightning.qubit", wires=n)
+
+        @qml.qnode(dev)
+        def circuit():
+            qml.Hadamard(wires=0)
+            qml.PauliZ(wires=0)
+            qml.Hadamard(wires=0)
+
+            qml.CNOT([0,1])
+
+            return qml.probs(wires=range(n))
+            return qml.state()
+
+        circuit()
+
+        return circuit
+
+class Google_4:
+
+    def build_circuit():
+        n=2
+        dev = qml.device("lightning.qubit", wires=n)
+
+        @qml.qnode(dev)
+        def circuit():
+            qml.Hadamard(wires=0)
+            qml.PauliZ(wires=0)
+            qml.Hadamard(wires=0)
+
+            qml.CNOT([1,0])
+
+            return qml.probs(wires=range(n))
+            return qml.state()
+
+        circuit()
+
+        return circuit
+    
+class anglePair:
+
+    def build_circuit(theta, phi):
+        dev = qml.device("lightning.qubit", wires=1)
+
+        @qml.qnode(dev)
+        def circuit():
+            qml.U3(theta=theta, phi=phi, delta=0, wires=0)
+
+            return qml.probs(wires=[0])
+
+        circuit()
+
+        return circuit
+    
+class anglePair_statevector:
+
+    def build_circuit(theta, phi):
+        dev = qml.device("lightning.qubit", wires=1)
+
+        @qml.qnode(dev)
+        def circuit():
+            qml.U3(theta=theta, phi=phi, delta=0, wires=0)
+
+            return qml.state()
+
+        circuit()        
 
         return circuit
