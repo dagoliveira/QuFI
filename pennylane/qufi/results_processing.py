@@ -50,20 +50,27 @@ def QVF_michelson_contrast(gold_bitstring, answer, shots):
     else:
         good_percent = answer[gold_bitstring]/shots
         
-    if answer_sorted[0] == gold_bitstring: # gold bitstring has the highest count (max)
-        # next bitstring is the second highest
-        next_percent = answer[answer_sorted[1]]/shots 
-        next_bitstring = answer_sorted[1]
-    else: # gold bitstring has NOT the highest count (not max)
-        next_percent = answer[answer_sorted[0]]/shots 
-        next_bitstring = answer_sorted[0]
-    qvf = (good_percent - next_percent) / (good_percent + next_percent)    
+    if len(answer_sorted) == 1:
+        qvf = 1
+        next_bitstring = None
+    else:
+        if answer_sorted[0] == gold_bitstring: # gold bitstring has the highest count (max)
+            # next bitstring is the second highest
+            next_percent = answer[answer_sorted[1]]/shots 
+            next_bitstring = answer_sorted[1]
+        else: # gold bitstring has NOT the highest count (not max)
+            next_percent = answer[answer_sorted[0]]/shots 
+            next_bitstring = answer_sorted[0]
+        qvf = (good_percent - next_percent) / (good_percent + next_percent)  
     return 1 - (qvf+1)/2, next_bitstring
     
 def build_DF_newQVF(data):
     """Read pickled data and store results in a dataframe"""
     results = []
     shots = 1024
+
+    print(data[0])
+
     gold_bitstring = max(data['output_gold_noise'], key=data['output_gold_noise'].get)#check
     original_gold_percentage = data['output_gold_noise'][gold_bitstring]/shots
 
@@ -71,7 +78,10 @@ def build_DF_newQVF(data):
         qvf, next_bitstring = QVF_michelson_contrast(gold_bitstring, answer, shots)
         max_key = max(answer, key=answer.get)
         output_percentage = answer[max_key]/shots
-        next_bitstring_percentage = answer[next_bitstring]/shots
+        if next_bitstring is None:
+            next_bitstring_percentage = 0
+        else:
+            next_bitstring_percentage = answer[next_bitstring]/shots
         if gold_bitstring not in answer:
             gold_percentage = 0
         else:
@@ -342,7 +352,44 @@ def compute_qubit_heatmaps(circs, savepath="./plots/heatmaps/"):
                 rdgn = sns.diverging_palette(h_neg=130, h_pos=10, s=200, l=55, sep=20, as_cmap=True)
                 sns.set(font_scale=1.3)
                 ax = sns.heatmap(qvf_tmp, xticklabels=theta_list_tex, yticklabels=phi_list_tex, cmap=rdgn, cbar_kws=param, vmin=0, vmax=1)
-                fig.savefig(savepath+circuit+'_'+qvf_idx+'_'+type_inj+'_heatmap.pdf', bbox_inches='tight')
+                fig.savefig(savepath+circuit+'_'+qvf_idx+'_'+type_inj+'_heatmap_new.pdf', bbox_inches='tight')
+                plt.close()
+
+def compute_index_heatmaps(circs, savepath="./plots/heatmaps/"):
+    """Compute single qubit histograms for single and double FI"""
+
+    print(circs)
+
+    theta_list_tex = ['0', '', '', '$\\frac{\pi}{4}$', '', '', '$\\frac{\pi}{2}$', ''
+                    , '', '$\\frac{3\pi}{4}$', '', '', '$\pi$']
+    phi_list_tex = ['', '', '$\\frac{7\pi}{4}$', '', ''
+                , '$\\frac{6\pi}{4}$', '', '', '$\\frac{5\pi}{4}$', ''
+                , '', '$\pi$', '', '',  '$\\frac{3\pi}{4}$'  
+                , '', '', '$\\frac{\pi}{2}$', '', '', '$\\frac{\pi}{4}$'
+                , '', '', '0']
+
+    # for df, type_inj in zip(circs, ["single", "double"]):
+    for df, type_inj in zip(circs, ["single"]):
+        circuits, theta_list, phi_list = get_circuits_angles(df)
+        for circuit in circuits:
+            # get a list of qubit columns (circuit may have different number of qubits now)
+            colNames = df[df['circuit_name']==circuit].dropna(axis=1).columns    
+            QVF_list= ['QVF_circuit']
+            QVF_list.extend( [x for x in colNames if re.search('QVF_qubit_.*',x)] ) # uncomment this line to include individual qubit analysis
+            
+            for qvf_idx in QVF_list:
+                qvf_tmp = df[df['circuit_name']==circuit]
+                qvf_tmp = qvf_tmp.pivot('first_phi', 'first_theta', qvf_idx)
+                qvf_tmp.columns.name = '$\\theta$ shift'
+                qvf_tmp.index.name = '$\\phi$ shift'
+                fig, ax = plt.subplots(1, 1, figsize=(6, 5))
+                param={'label': 'QVF'}
+
+                divnorm = colors.TwoSlopeNorm(vmin=0, vcenter=0.5, vmax=1)
+                rdgn = sns.diverging_palette(h_neg=130, h_pos=10, s=200, l=55, sep=20, as_cmap=True)
+                sns.set(font_scale=1.3)
+                ax = sns.heatmap(qvf_tmp, xticklabels=theta_list_tex, yticklabels=phi_list_tex, cmap=rdgn, cbar_kws=param, vmin=0, vmax=1)
+                fig.savefig(savepath+circuit+'_'+qvf_idx+'_'+type_inj+'_heatmap_new_index.pdf', bbox_inches='tight')
                 plt.close()
 
 #%%
@@ -351,11 +398,12 @@ def generate_all_statistics(results, savepath="./plots"):
     """Call process_results only once and compute all histograms and heatmaps"""
     circs = [process_results(filter_single_fi(results)), process_results(results)]
 
-    compute_merged_histogram(circs, f"{savepath}/histograms/")
-    compute_circuit_heatmaps(circs, f"{savepath}/heatmaps/")
-    compute_circuit_delta_heatmaps(circs, f"{savepath}/deltaHeatmaps/")
-    compute_qubit_histograms(circs, f"{savepath}/histograms/")
-    compute_qubit_heatmaps(circs, f"{savepath}/heatmaps/")
+    # compute_merged_histogram(circs, f"{savepath}/histograms/")
+    # compute_circuit_heatmaps(circs, f"{savepath}/heatmaps/")
+    # compute_circuit_delta_heatmaps(circs, f"{savepath}/deltaHeatmaps/")
+    # compute_qubit_histograms(circs, f"{savepath}/histograms/")
+    # compute_qubit_heatmaps(circs, f"{savepath}/heatmaps/")
+    compute_index_heatmaps(circs, f"{savepath}/heatmaps_index/")
     
 
 # %%

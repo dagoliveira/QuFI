@@ -159,23 +159,24 @@ def pl_generate_circuits(base_circuit, name, theta=0, phi=0, lam=0):
     mycircuits = []
     inj_info = []
     index_info = []
-    with base_circuit.tape as tape:
-        index = 0
-        for op in tape.operations:
-            for wire in op.wires:
-                shots = 1024
-                transformed_circuit = pl_insert_gate(index, wire, theta, phi, lam)(base_circuit.func)
-                device = qml.device('lightning.qubit', wires=len(tape.wires), shots=shots)
-                transformed_qnode = qml.QNode(transformed_circuit, device)
-                log(f'Generated single fault circuit: {name} with fault on ({op.name}, wire:{wire}), theta = {theta}, phi = {phi}')
-                #print(qml.draw(transformed_qnode)())
-                transformed_qnode()
-                mycircuits.append(transformed_qnode)
-                inj_info.append(wire)
-                index_info.append(index)
-            index = index + 1
-        log(f"{len(mycircuits)} circuits generated\n")
-        return mycircuits, inj_info, index_info
+    # with base_circuit.tape as tape:
+    tape = base_circuit.tape
+    index = 0
+    for op in tape.operations:
+        for wire in op.wires:
+            shots = 1024
+            transformed_circuit = pl_insert_gate(index, wire, theta, phi, lam)(base_circuit.func)
+            device = qml.device('lightning.qubit', wires=len(tape.wires), shots=shots)
+            transformed_qnode = qml.QNode(transformed_circuit, device)
+            log(f'Generated single fault circuit: {name} with fault on ({op.name}, wire:{wire}), theta = {theta}, phi = {phi}')
+            #print(qml.draw(transformed_qnode)())
+            transformed_qnode()
+            mycircuits.append(transformed_qnode)
+            inj_info.append(wire)
+            index_info.append(index)
+        index = index + 1
+    log(f"{len(mycircuits)} circuits generated\n")
+    return mycircuits, inj_info, index_info
 
 def pl_insert(circuit, name, theta=0, phi=0, lam=0):
     """Wrapper for constructing the single fault circuits object"""
@@ -198,29 +199,30 @@ def pl_insert_df(r, name, theta1, phi1, coupling_map):
     double_fault_circuits = []
     
     for qnode, wire, index in zip(r['generated_circuits'], r['wires'], r['indexes']):
-        with qnode.tape as tape:
-            for gate in tape.operations:
-                if gate.id == 'FAULT':
-                    for logical_qubit in tape.wires:
-                        physical_qubit = coupling_map['logical2physical'][logical_qubit]
-                        neighbouring_qubits = [el[1] for el in coupling_map['topology'] if el[0]==physical_qubit]
-                        # Don't loop over all logical qubits, just over the ones connected! Kinda
-                        for neighbor in neighbouring_qubits:
-                            if neighbor not in coupling_map['physical2logical'].keys() or coupling_map['physical2logical'][neighbor] not in range(len(tape.wires)):
+        # with qnode.tape.QuantumTape() as tape:
+        tape = qnode.tape
+        for gate in tape.operations:
+            if gate.id == 'FAULT':
+                for logical_qubit in tape.wires:
+                    physical_qubit = coupling_map['logical2physical'][logical_qubit]
+                    neighbouring_qubits = [el[1] for el in coupling_map['topology'] if el[0]==physical_qubit]
+                    # Don't loop over all logical qubits, just over the ones connected! Kinda
+                    for neighbor in neighbouring_qubits:
+                        if neighbor not in coupling_map['physical2logical'].keys() or coupling_map['physical2logical'][neighbor] not in range(len(tape.wires)):
+                            continue
+                        else:
+                            second_fault_wire = coupling_map['physical2logical'][neighbor]
+                            if second_fault_wire in gate.wires:
                                 continue
-                            else:
-                                second_fault_wire = coupling_map['physical2logical'][neighbor]
-                                if second_fault_wire in gate.wires:
-                                    continue
-                                double_fault_circuit = pl_insert_df_gate(index, second_fault_wire, theta1, phi1)(deepcopy(qnode).func)
-                                double_fault_device = qml.device('lightning.qubit', wires=len(tape.wires), shots=shots)
-                                double_fault_qnode = qml.QNode(double_fault_circuit, double_fault_device)
-                                double_fault_qnode()
-                                log(f'Generated double fault circuit: {name} with faults on (wire1:{wire}, theta0:{gate.parameters[0]:.2f}, phi0:{gate.parameters[1]:.2f}) and (wire2:{second_fault_wire}, theta1:{theta1:.2f}, phi1:{phi1:.2f})')
-                                #print(qml.draw(double_fault_qnode)())
-                                double_fault_circuits.append(double_fault_qnode)
-                                r['second_wires'].append(second_fault_wire)
-                                r['wires'].append(wire)
+                            double_fault_circuit = pl_insert_df_gate(index, second_fault_wire, theta1, phi1)(deepcopy(qnode).func)
+                            double_fault_device = qml.device('lightning.qubit', wires=len(tape.wires), shots=shots)
+                            double_fault_qnode = qml.QNode(double_fault_circuit, double_fault_device)
+                            double_fault_qnode()
+                            log(f'Generated double fault circuit: {name} with faults on (wire1:{wire}, theta0:{gate.parameters[0]:.2f}, phi0:{gate.parameters[1]:.2f}) and (wire2:{second_fault_wire}, theta1:{theta1:.2f}, phi1:{phi1:.2f})')
+                            #print(qml.draw(double_fault_qnode)())
+                            double_fault_circuits.append(double_fault_qnode)
+                            r['second_wires'].append(second_fault_wire)
+                            r['wires'].append(wire)
     log(f"{len(double_fault_circuits)} double fault circuits generated\n")
     r['generated_circuits'] = double_fault_circuits
     return r
