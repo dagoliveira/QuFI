@@ -1,6 +1,7 @@
 from numpy import pi
 import math
 import pennylane as qml
+import numpy as np
 
 class BernsteinVazirani:
 
@@ -330,9 +331,13 @@ class anglePair:
     def build_circuit(theta, phi):
         dev = qml.device("lightning.qubit", wires=1)
 
+        def my_ops(dev):
+            qml.U3(theta=theta,  phi=phi, delta=0, wires=0)
+
         @qml.qnode(dev)
         def circuit():
-            qml.U3(theta=theta, phi=phi, delta=0, wires=0)
+            my_ops(dev)
+            qml.adjoint(my_ops)(dev)
 
             return qml.probs(wires=[0])
 

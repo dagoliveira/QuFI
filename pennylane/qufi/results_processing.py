@@ -453,7 +453,6 @@ def compute_index_heatmaps(circs, savepath="./plots/heatmaps/"):
                 fig.savefig(savepath+circuit+'_'+qvf_idx+'_'+type_inj+'_heatmap_new_index.pdf', bbox_inches='tight')
                 plt.close()
 
-#%%
 
 def generate_all_statistics(results, savepath="./plots"):
     """Call process_results only once and compute all histograms and heatmaps"""
@@ -464,8 +463,8 @@ def generate_all_statistics(results, savepath="./plots"):
     # compute_circuit_delta_heatmaps(circs, f"{savepath}/deltaHeatmaps/")
     # compute_qubit_histograms(circs, f"{savepath}/histograms/")
     # compute_qubit_heatmaps(circs, f"{savepath}/heatmaps/")
-    compute_index_heatmaps(circs, f"{savepath}/heatmaps_index/")
+    # compute_index_heatmaps(circs, f"{savepath}/heatmaps_index/")
 
+    print()
 
-# %%
 
