@@ -26,9 +26,12 @@ def compute_QVF_michelson_contrast_single_injection(df, circuit_name, phi, theta
     wires = set(dfFilter['first_qubit_injected'])
     indexes_wires = product(indexes, wires)
     for i, q in indexes_wires:
-        QVF['QVF_qubit_'+str(q)+'_index_'+str(i)] = dfFilter[(dfFilter.indexes==i) & (dfFilter.first_qubit_injected==q)]['QVF'].mean()
+        QVF['QVF_index_'+str(i)+'_qubit_'+str(q)] = dfFilter[(dfFilter.indexes==i) & (dfFilter.first_qubit_injected==q)]['QVF'].mean()
         # if pd.isna(QVF['QVF_qubit_'+str(q)+'_index_'+str(i)]):
         #     print(QVF['QVF_qubit_'+str(q)+'_index_'+str(i)])
+
+    for q in wires:
+        QVF['QVF_qubit_'+str(q)] = dfFilter[dfFilter.first_qubit_injected==q]['QVF'].mean()
 
     return QVF
 
@@ -391,7 +394,7 @@ def compute_qubit_heatmaps(circs, savepath="./plots/heatmaps/"):
                 , '', '', '$\\frac{\pi}{2}$', '', '', '$\\frac{\pi}{4}$'
                 , '', '', '0']
 
-    for df, type_inj in zip(circs, ["single", "double"]):
+    for df in circs:
         circuits, theta_list, phi_list = get_circuits_angles(df)
         # print(df)
         for circuit in circuits:
@@ -413,7 +416,7 @@ def compute_qubit_heatmaps(circs, savepath="./plots/heatmaps/"):
                 rdgn = sns.diverging_palette(h_neg=130, h_pos=10, s=200, l=55, sep=20, as_cmap=True)
                 sns.set(font_scale=1.3)
                 ax = sns.heatmap(qvf_tmp, xticklabels=theta_list_tex, yticklabels=phi_list_tex, cmap=rdgn, cbar_kws=param, vmin=0, vmax=1)
-                fig.savefig(savepath+circuit+'_'+qvf_idx+'_'+type_inj+'_heatmap_new.pdf', bbox_inches='tight')
+                fig.savefig(savepath+circuit+'_'+qvf_idx+'_heatmap.pdf', bbox_inches='tight')
                 plt.close()
 
 def compute_index_heatmaps(circs, savepath="./plots/heatmaps/"):
@@ -430,13 +433,13 @@ def compute_index_heatmaps(circs, savepath="./plots/heatmaps/"):
                 , '', '', '0']
 
     # for df, type_inj in zip(circs, ["single", "double"]):
-    for df, type_inj in zip(circs, ["single"]):
+    for df in circs:
         circuits, theta_list, phi_list = get_circuits_angles(df)
         for circuit in circuits:
             # get a list of qubit columns (circuit may have different number of qubits now)
             colNames = df[df['circuit_name']==circuit].dropna(axis=1).columns
-            QVF_list= ['QVF_circuit']
-            QVF_list.extend( [x for x in colNames if re.search('QVF_qubit_.*',x)] ) # uncomment this line to include individual qubit analysis
+            QVF_list= []
+            QVF_list.extend( [x for x in colNames if re.search('QVF_index_.*',x)] ) # uncomment this line to include individual qubit analysis
 
             for qvf_idx in QVF_list:
                 qvf_tmp = df[df['circuit_name']==circuit]
@@ -450,7 +453,7 @@ def compute_index_heatmaps(circs, savepath="./plots/heatmaps/"):
                 rdgn = sns.diverging_palette(h_neg=130, h_pos=10, s=200, l=55, sep=20, as_cmap=True)
                 sns.set(font_scale=1.3)
                 ax = sns.heatmap(qvf_tmp, xticklabels=theta_list_tex, yticklabels=phi_list_tex, cmap=rdgn, cbar_kws=param, vmin=0, vmax=1)
-                fig.savefig(savepath+circuit+'_'+qvf_idx+'_'+type_inj+'_heatmap_new_index.pdf', bbox_inches='tight')
+                fig.savefig(savepath+circuit+'_'+qvf_idx+'_heatmap.pdf', bbox_inches='tight')
                 plt.close()
 
 
@@ -462,8 +465,8 @@ def generate_all_statistics(results, savepath="./plots"):
     # compute_circuit_heatmaps(circs, f"{savepath}/heatmaps/")
     # compute_circuit_delta_heatmaps(circs, f"{savepath}/deltaHeatmaps/")
     # compute_qubit_histograms(circs, f"{savepath}/histograms/")
-    # compute_qubit_heatmaps(circs, f"{savepath}/heatmaps/")
-    # compute_index_heatmaps(circs, f"{savepath}/heatmaps_index/")
+    compute_qubit_heatmaps(circs, f"{savepath}/heatmaps/")
+    compute_index_heatmaps(circs, f"{savepath}/heatmaps_index/")
 
     print()
 

@@ -1,5 +1,6 @@
 from qufi.injector import *
 from qufi.injector_dict import *
+from qufi.injector_fast import *
 from qufi.circuit_generator import BernsteinVazirani
 from qufi.circuit_generator import DeutschJozsa
 from qufi.circuit_generator import Grover
@@ -11,6 +12,8 @@ from qufi.circuit_generator import Google_1
 from qufi.circuit_generator import Google_3
 from qufi.circuit_generator import Google_4
 from qufi.circuit_generator import Google_2
+from qufi.circuit_generator import Try_0
+from qufi.circuit_generator import Try_1
 from qufi.circuit_generator import anglePair
 from qufi.circuit_generator import anglePair_statevector
 from qufi.results_processing import *

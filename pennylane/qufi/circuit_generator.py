@@ -42,6 +42,52 @@ class BernsteinVazirani:
         circuit()
 
         return circuit
+    
+class Try_0:
+
+    default_n = 2
+
+    def build_circuit(n=default_n):
+
+        dev = qml.device("lightning.qubit", wires=n)
+
+        @qml.qnode(dev)
+        def circuit():
+            qml.Hadamard(wires=0)
+            qml.Hadamard(wires=1)
+            qml.PauliZ(wires=1)
+
+            qml.CNOT([0, 1])
+            qml.Hadamard(wires=0)
+            
+            return qml.probs(wires=[0])
+
+        circuit()
+
+        return circuit
+    
+class Try_1:
+
+    default_n = 2
+
+    def build_circuit(n=default_n):
+
+        dev = qml.device("lightning.qubit", wires=n)
+
+        @qml.qnode(dev)
+        def circuit():
+            qml.Hadamard(wires=0)
+            qml.Hadamard(wires=1)
+            qml.PauliZ(wires=1)
+
+            qml.CNOT([0, 1])
+            qml.Hadamard(wires=0)
+
+            return qml.probs(wires=range(n))
+
+        circuit()
+
+        return circuit
 
 class DeutschJozsa:
 

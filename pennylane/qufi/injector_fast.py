@@ -16,17 +16,20 @@ from qiskit import transpile
 import pennylane as qml
 
 import sys
+import os
 sys.path.insert(0,'..')
 
 from qiskit.quantum_info.operators.symplectic import PauliList
 from qiskit.quantum_info.states.densitymatrix import DensityMatrix
 from qiskit.quantum_info import Statevector
-from qiskit.circuit import QuantumCircuit
+from qiskit.circuit import QuantumCircuit, ClassicalRegister
 # from .exceptions import VisualizationError
 
 file_logging = False
 logging_filename = "./qufi.log"
 console_logging = True
+circuit_fodler = "./circuits_fast/"
+circuit_index_fodler = "./circuits_index_fast/"
 
 def log(content):
     """Logging wrapper, can redirect both to stdout and a file"""
@@ -50,8 +53,7 @@ def bloch_multivector_data(circuit):
     Raises:
         VisualizationError: if input is not an N-qubit state.
     """
-    q_circuit = QuantumCircuit.from_qasm_str(circuit.qtape.to_openqasm())
-    state = Statevector(q_circuit)
+    state = Statevector(circuit)
     rho = DensityMatrix(state)
     num = rho.num_qubits
     # if num is None:
@@ -65,73 +67,10 @@ def bloch_multivector_data(circuit):
             ).insert(i, pauli_singles, qubit=True)
         else:
             paulis = pauli_singles
-        bloch_state = [np.real(np.trace(np.dot(mat, rho.data))), 4) for mat in paulis.matrix_iter()]
-        bloch_data.append(np.round(bloch_state),4)
+        bloch_state = [np.real(np.round(np.trace(np.dot(mat, rho.data)),4)) for mat in paulis.matrix_iter()]
+        # bloch_state = [np.real(np.trace(np.dot(mat, rho.data))) for mat in paulis.matrix_iter()]
+        bloch_data.append(bloch_state)
     return bloch_data
-
-def probs_to_counts(probs, nwires):
-    """Utility to convert pennylane result probabilities to qiskit counts"""
-    res_dict = {}
-    shots = 1024
-    for p, t in zip(probs, list(product(['0', '1'], repeat=nwires))):
-        b = ''.join(t)
-        count = int(ceil(shots*float(p)))
-        if count != 0:
-            res_dict[b] = count
-    # Debug check for ceil rounding (Still bugged somehow, sometimes off by 1-2 shots)
-    #if sum(res_dict.values()) != shots:
-    #    log(f"Rounding error! {sum(res_dict.values())} != {shots}")
-    return res_dict
-
-def get_qiskit_coupling_map(qnode, device_backend):
-    """Get structured coupling map compatible with qufi from given qiskit backend"""
-    bv4_qasm = qnode.tape.to_openqasm()
-    bv4_qiskit = qiskitQC.from_qasm_str(bv4_qasm)
-    simulator = AerSimulator.from_backend(device_backend)
-    # Transpile the circuit for the noisy basis gates
-    # If there are not enough qubits, transpile will throw an error for us
-    tcirc = transpile(bv4_qiskit, simulator, optimization_level=3)
-    coupling_map = {}
-    coupling_map['topology'] = set(tuple(sorted(l)) for l in device_backend.configuration().to_dict()['coupling_map'])
-    coupling_map['logical2physical'] = { k._index:v for (k,v) in tcirc._layout.get_virtual_bits().items() if k._register.name == 'q'}
-    coupling_map['physical2logical'] = { k:v._index for (k, v) in tcirc._layout.get_physical_bits().items() if v._register.name == 'q'}
-
-    return coupling_map
-
-def run_circuits(base_circuit, generated_circuits, device_backend=FakeSantiago()):
-    """Internally called function which runs the circuits for all golden/faulty noiseless/noisy combinations"""
-    # Execute golden circuit simulation without noise
-    log('Running circuits')
-    gold_device = qml.device('lightning.qubit', wires=base_circuit.device.num_wires)
-    gold_qnode = qml.QNode(base_circuit.func, gold_device)
-    answer_gold = probs_to_counts(gold_qnode(), base_circuit.device.num_wires)
-
-    # Execute golden circuit simulation with noise
-    noise_model = NoiseModel.from_backend(device_backend)
-    gold_device_noisy = qml.device('qiskit.aer', wires=base_circuit.device.num_wires, backend='aer_simulator', noise_model=noise_model)
-    gold_qnode_noisy = qml.QNode(base_circuit.func, gold_device_noisy)
-    answer_gold_noise = probs_to_counts(gold_qnode_noisy(), base_circuit.device.num_wires)
-
-    # Execute injection circuit simulations without noise
-    answers = []
-    for c, i in zip(generated_circuits, range(0, len(generated_circuits))):
-        inj_device = qml.device('lightning.qubit', wires=c.device.num_wires)
-        inj_qnode = qml.QNode(c.func, inj_device)
-        answer = probs_to_counts(inj_qnode(), base_circuit.device.num_wires)
-        answers.append(answer)
-
-    # Execute injection circuit simulations with noise
-    answers_noise = []
-    for c, i in zip(generated_circuits, range(0, len(generated_circuits))):
-        inj_device_noisy = qml.device('qiskit.aer', wires=c.device.num_wires, backend='aer_simulator', noise_model=noise_model)
-        inj_qnode_noisy = qml.QNode(c.func, inj_device_noisy)
-        answer_noise = probs_to_counts(inj_qnode_noisy(), base_circuit.device.num_wires)
-        answers_noise.append(answer_noise)
-
-    return {'output_gold':answer_gold, 'output_injections':answers
-            , 'output_gold_noise':answer_gold_noise, 'output_injections_noise':answers_noise
-            , 'noise_target':str(device_backend)
-            }
 
 def convert_qiskit_circuit(qiskit_circuit):
     """Converts a qiskit QuantumCircuit object to a pennylane QNode object"""
@@ -158,119 +97,100 @@ def convert_qasm_circuit(qasm_circuit):
     return qnode
 
 @qml.qfunc_transform
-def pl_insert_gate(tape, index, wire, theta=0, phi=0, lam=0):
+def pl_insert_gate(tape, index, wire, n_qubits):
     """Decorator qfunc_transform which inserts a single fault gate"""
+    for qubit in range(n_qubits):
+        qml.U3(theta=0, phi=0, delta=0, wires=qubit, id="RST")
+
     i = 0
     for gate in tape.operations + tape.measurements:
-        # Ignore barriers and measurement gates
+        qml.apply(gate)
         if i == index:
-            # If gate are not using a single qubit, insert one gate after each qubit
-            qml.apply(gate)
-            qml.U3(theta=theta, phi=phi, delta=lam, wires=wire, id="FAULT")
-        else:
-            qml.apply(gate)
-        i = i + 1
+            qml.U3(theta=0, phi=0, delta=0, wires=wire, id="FAULT")
+            break
+        i += 1
+    # qml.state()
 
-def pl_generate_circuits(base_circuit, name, theta=0, phi=0, lam=0):
+def pl_generate_circuits(base_circuit, name):
     """Generate all possible fault circuits"""
-    mycircuits = []
     inj_info = []
     index_info = []
+    bloch_info = []
     n_qubits = base_circuit.device.num_wires
-    tape = base_circuit.tape
+    qubits_m = base_circuit.tape.measurements[0].wires
+    len_qubits_m = len(qubits_m)
+    cbit     = ClassicalRegister(len_qubits_m)
+    shots = 1024
     index = 0
+
+    tape = base_circuit.tape
     for op in tape.operations:
         for wire in op.wires:
-            shots = 1024
-            transformed_circuit = pl_insert_gate(index, wire, theta, phi, lam)(base_circuit.func)
-            device = qml.device('lightning.qubit', wires=n_qubits, shots=shots)
+            transformed_circuit = pl_insert_gate(index, wire, n_qubits)(base_circuit.func)
+            device = qml.device('qiskit.aer', wires=n_qubits, shots=shots)
             transformed_qnode = qml.QNode(transformed_circuit, device)
-            # log(f'Generated single fault circuit: {name} with fault on ({op.name}, wire:{wire}), theta = {theta}, phi = {phi}')
-            # print(index)
-            # print(wire)
-            # print(qml.draw(transformed_qnode)())
-            # print()
             transformed_qnode()
-            mycircuits.append(transformed_qnode)
+
+            q_c = QuantumCircuit.from_qasm_str(str(device._circuit.qasm()))
+            q_c.remove_final_measurements()
+            bloch = bloch_multivector_data(q_c)
+            
+            q_c.add_bits(cbit)
+            q_c.barrier()
+            q_c.measure(qubits_m, range(len_qubits_m))
+            q_c.draw(output="mpl", filename=str(circuit_index_fodler+name+"_"+str(index)+"_"+str(wire)+".pdf"))
+            
+            log(f'Bloch: {bloch[wire]}, wire:{wire}, index: {index}')
+            # log(f'Bloch: {bloch}, wire:{wire}, index: {index}')
+            print(qml.draw(transformed_qnode)())
+            print()
+            
+            bloch_info.append(bloch[wire])
             inj_info.append(wire)
             index_info.append(index)
+
         index = index + 1    
-    # print(index_info)
+    # print(bloch_info)
     # print(inj_info)
-    log(f"{len(mycircuits)} circuits generated\n")
-    return mycircuits, inj_info, index_info
+    # print(index_info)
+    return bloch_info, inj_info, index_info, n_qubits, qubits_m, tape
 
-def pl_insert(circuit, name, theta=0, phi=0, lam=0):
-    """Wrapper for constructing the single fault circuits object"""
-    output = {'name': name, 'base_circuit':circuit, 'theta0':theta, 'phi0':phi, 'theta1':0, 'phi1':0, 'lambda':lam}
-    output['pennylane_version'] = qml.version()
-    #print(qml.draw(circuit)())
-    generated_circuits, wires, indexes = pl_generate_circuits(circuit, name, theta, phi, lam)
-    output['generated_circuits'] = generated_circuits
-    output['wires'] = wires
-    output['second_wires'] = wires
-    output['indexes'] = indexes
-    return output
-
-def pl_inject(circuitStruct):
-    """Run a single/double fault circuits object"""
-    circuitStruct.update(run_circuits( circuitStruct['base_circuit'], circuitStruct['generated_circuits'] ) )
-
-def execute_over_range(circuits,
-            angles={'theta0':np.arange(0, np.pi+0.01, np.pi/12), 
-                    'phi0':np.arange(0, 2*np.pi+0.01, np.pi/12)}, 
-            results_folder="./tmp/"):
+def execute_over_range_fast(circuits, results_folder="./tmp_qvf/"):
     """Given a range of angles, build all single/double fault injection circuits and run them sequentially"""
     #results = []
     results_names = []
     tstart = datetime.datetime.now()
     log(f"Start: {tstart}")
-    for circuit in circuits:
-        log(f"-"*80+"\n")
-        tstartint = datetime.datetime.now()
-        log(f"Circuit {circuit[1]} start: {tstartint}")
-        angle_combinations = product(angles['theta0'], angles['phi0'])
-        for angle_pair1 in angle_combinations:
-            # Converting the circuit only once at the start of outer loop causes reference bugs (insight needed)
-            if isinstance(circuit[0], qml.QNode):
-                target_circuit = circuit[0]
-            elif isinstance(circuit[0], qiskitQC):
-                target_circuit = convert_qiskit_circuit(circuit)
-            elif isinstance(circuit[0], str) and circuit[0].startswith("OPENQASM"):
-                target_circuit = convert_qasm_circuit(circuit)
+  
+    # read all qvf heatmaps
+    folder_path = "tmp_state_vector"  # replace with the path to your folder
+    files = os.listdir(folder_path)
+    qvf_heatmaps = []
+    for file in files:
+        file_path = os.path.join(folder_path, file)
+        if os.path.isfile(file_path):
+            data = pickle.load(gzip.open(file_path, 'r'))[0]
+            try:
+                A = data['name']
+                A = data['bloch_vector']
+                A = data['state_vector']
+            except:
+                print(data['name'], " can't be read\n")
             else:
-                log(f"Unsupported {type(circuit[0])} object, injection stopped.")
-                exit()
+                # qvf_heatmaps.append((data['bloch_vector'], data['state_vector'], data['qvf']))
+                qvf_heatmaps.append([data['bloch_vector'], np.array(data['qvf']), data['name']])
+        
+    heatmap_all_0 = [0] * 325
+    # print(heatmap_all_0)
 
-            log(f"-"*80+"\n"+f"Injecting circuit: {circuit[1]} theta0: {angle_pair1[0]} phi0: {angle_pair1[1]}")
-            r = pl_insert(deepcopy(target_circuit), circuit[1], theta=angle_pair1[0], phi=angle_pair1[1])
-            pl_inject(r)
-            #results.append(r)
-            tmp_name = f"{results_folder}{circuit[1]}_{angle_pair1[0]}_{angle_pair1[1]}_0_0.p.gz"
-            save_results([r], tmp_name)
-            results_names.append(tmp_name)  
+    # for k in qvf_heatmaps:
+    #     print(k[0])
 
-        tendint = datetime.datetime.now()
-        log(f"Done: {tendint}\nElapsed time: {tendint-tstartint}\n"+"-"*80+"\n")
-    tend = datetime.datetime.now()
-    log(f"Done: {tend}\nTotal elapsed time: {tend-tstart}\n")
-
-    # return results
-    return results_names
-
-def execute(circuits,
-            angles=None, 
-            coupling_map=None,
-            results_folder="./tmp/"):
-    """Given a list of angle combinations, split them in batches, then compute all circuits and run them sequentially"""
-    results_folder = "./tmp/"
-    results_names = []
-    tstart = datetime.datetime.now()
-    log(f"Start: {tstart}")
     for circuit in circuits:
         log(f"-"*80+"\n")
         tstartint = datetime.datetime.now()
         log(f"Circuit {circuit[1]} start: {tstartint}")
+        # Converting the circuit only once at the start of outer loop causes reference bugs (insight needed)
         if isinstance(circuit[0], qml.QNode):
             target_circuit = circuit[0]
         elif isinstance(circuit[0], qiskitQC):
@@ -280,37 +200,110 @@ def execute(circuits,
         else:
             log(f"Unsupported {type(circuit[0])} object, injection stopped.")
             exit()
+
+        log(f"-"*80+"\n"+f"Injecting circuit: {circuit[1]}")
+        # r = pl_insert(deepcopy(target_circuit), circuit[1], theta=angle_pair1[0], phi=angle_pair1[1])
+        # pl_inject(r)
+        #results.append(r)
+        bloch_info, inj_info, index_info, n_qubits, qubits_m, tape = pl_generate_circuits(deepcopy(target_circuit), circuit[1])
+
+        qvf_index = []
         
-        for angles_batch, batch in zip(np.array_split(angles, ceil(len(angles)/500)), range(1, ceil(len(angles)/500) + 1) ):
-            results = []
-            for angles_combination, iteration in zip(angles_batch, range(1, len(angles_batch))):
-                log(f"Executing iteration:{iteration}/{len(angles_batch)} batch:{batch}/{ceil(len(angles)/500)}")
-                log(f"-"*80+"\n"+f"Injecting circuit: {circuit[1]} theta0: {angles_combination[0]} phi0: {angles_combination[1]}")
-                r = pl_insert(deepcopy(target_circuit), circuit[1], theta=angles_combination[0], phi=angles_combination[1])
-                if coupling_map != None:
-                    s = pl_insert_df(deepcopy(r), circuit[1], angles_combination[2], angles_combination[3], coupling_map)
-                    pl_inject(s)
-                    results.append(s)
+        qvf     = {}
+        qvf     = {"QVF_circuit": np.zeros(325)}
+        qvf_occ = {"QVF_circuit": 0}
+        for qubit in range(n_qubits):
+            qvf["QVF_circuit_qubit_{}".format(str(qubit))]     = np.zeros(325)
+            qvf_occ["QVF_circuit_qubit_{}".format(str(qubit))] = 0
+        
+        # for i in range(len(bloch_info)):
+        #     bloch = bloch_info[i]
+        #     flag = False
+        #     log(f'Bloch: {bloch}, wire:{inj_info[i]}, index: {index_info[i]}')
+        #     for heatmap in qvf_heatmaps:
+        #         if heatmap[0][0] == bloch[0] and heatmap[0][1] == bloch[1] and heatmap[0][2] == bloch[2]:
+        #             flag = True
+        #             break
+        #     if flag:
+        #         print("MATCH")
+        #         print(heatmap[0])
+        #     else:
+        #         print("NO MATCH")
+        #     print()
+
+        for i in range(len(bloch_info)):
+            bloch = bloch_info[i]
+            log(f'Bloch: {bloch}, wire:{inj_info[i]}, index: {index_info[i]}')
+            
+            # check if there are harmless errors
+            flag = True
+            if inj_info[i] not in qubits_m:
+                pos = index_info[i]+1
+                if len(tape.operations) > pos:
+                    print(tape.operations[pos:])
+                    for op in tape.operations[pos:]:
+                        flag = False
+                        # print(f"Check if {inj_info[i]} is in {op.wires}")
+                        if inj_info[i] in op.wires:
+                            flag = True
+                            break
                 else:
-                    pl_inject(r)
-                    results.append(r)
-            tmp_name = f"{results_folder}{circuit[1]}_{angles_combination[0]}_{angles_combination[1]}_{angles_combination[2]}_{angles_combination[3]}.p.gz"
-            results_names.append(tmp_name)
-            save_results(results, tmp_name)
+                    flag = False
+            
+            if flag:
+                flag = False
+                for heatmap in qvf_heatmaps:
+                    if heatmap[0][0] == bloch[0] and heatmap[0][1] == bloch[1] and heatmap[0][2] == bloch[2]:
+                        flag = True
+                        break
+                        
+                if flag:
+                    print("MATCH")
+                    print(heatmap[0])
+                    print(heatmap[2])
+
+                    qvf["QVF_circuit_qubit_{}".format(str(inj_info[i]))]     += heatmap[1]
+                    qvf_occ["QVF_circuit_qubit_{}".format(str(inj_info[i]))] += 1
+                    
+                    qvf["QVF_circuit"]     += heatmap[1]
+                    qvf_occ["QVF_circuit"] += 1
+
+                    qvf_index.append(deepcopy(heatmap[1]))
+                else:
+                    print("NO MATCH")
+            else:
+                print("QVF all 0s!")
+
+                qvf["QVF_circuit_qubit_{}".format(str(inj_info[i]))]     += heatmap_all_0
+                qvf_occ["QVF_circuit_qubit_{}".format(str(inj_info[i]))] += 1
+                
+                qvf["QVF_circuit"]     += heatmap_all_0
+                qvf_occ["QVF_circuit"] += 1
+
+                qvf_index.append(deepcopy(heatmap_all_0))
+            print()
+        
+        qvf["name"] = circuit[1]
+        # qvf["QVF_circuit"] += 3
+        qvf["QVF_circuit"] /= (qvf_occ["QVF_circuit"])
+        for qubit in range(n_qubits):
+            # qvf["QVF_circuit_qubit_{}".format(str(qubit))] += 1
+            qvf["QVF_circuit_qubit_{}".format(str(qubit))] /= (qvf_occ["QVF_circuit_qubit_{}".format(str(qubit))])
+
+        tmp_name = f"{results_folder}{circuit[1]}.p.gz"
+        save_results([qvf, qvf_index], tmp_name)
+        results_names.append(tmp_name)         
+
         tendint = datetime.datetime.now()
         log(f"Done: {tendint}\nElapsed time: {tendint-tstartint}\n"+"-"*80+"\n")
     tend = datetime.datetime.now()
     log(f"Done: {tend}\nTotal elapsed time: {tend-tstart}\n")
 
+    # return results
     return results_names
-
 
 def save_results(results, filename='./results.p.gz'):
     """Save a single/double circuits results object"""
-    # Temporary fix for pickle.dump
-    for circuit in results:
-        del circuit['base_circuit']
-        del circuit['generated_circuits']
     if not isdir(dirname(filename)):
         mkdir(dirname(filename))
     pickle.dump(results, gzip.open(filename, 'w'))

@@ -4,23 +4,29 @@ import pennylane as qml
 import qiskit
 from qiskit import Aer
 from qiskit.tools.visualization import plot_histogram
-from qufi import execute_over_range, Google_3, Google_4, Google_2, get_qiskit_coupling_map, read_results_directory, generate_all_statistics
+from qufi import execute_over_range, Google_3, BernsteinVazirani, Try_0, Try_1,  read_results_directory, generate_all_statistics
 
-angles = {'theta':[1, 2], 'phi':[2, 3]}
+# angles = {'theta':[1, 2], 'phi':[2, 3]}
 circuits = []
 
-#%%
-google = Google_3.build_circuit()
-circuits.append((google, 'Google_3'))
+# c = Google_3.build_circuit()
+# circuits.append((c, 'Google_3'))
 
-bv4_p = Google_4.build_circuit()
-circuits.append((bv4_p, 'Google_4'))
+bv4_p = BernsteinVazirani.build_circuit()
+circuits.append((bv4_p, 'BernsteinVazirani_4'))
+
+# try_0 = Try_0.build_circuit()
+# circuits.append((try_0, 'try_0'))
+
+# try_1 = Try_1.build_circuit()
+# circuits.append((try_1, 'try_1'))
+
 #%%
 simulator = Aer.get_backend('qasm_simulator')
 
 circuit_fodler = "circuits/"
 for c in circuits:
-    q_c = qiskit.circuit.QuantumCircuit.from_qasm_str(c[0].qtape.to_openqasm())
+    q_c = qiskit.circuit.QuantumCircuit.from_qasm_str(c[0].qtape.to_openqasm(rotations=False, measure_all=False))
 
     # Run and get counts
     result = simulator.run(q_c).result()
@@ -30,17 +36,13 @@ for c in circuits:
     q_c.draw(output="mpl", filename=str(circuit_fodler+c[1]))
 
 #%%
-device_backend = FakeSantiago()
-coupling_map = get_qiskit_coupling_map(circuits[0][0], device_backend)
-
-#%%
-results_names = execute_over_range(circuits, results_folder="./tmp/")
+results_names = execute_over_range(circuits, results_folder="./tmp_try/")
 
 # %%
-from qufi import execute_over_range, get_qiskit_coupling_map, read_results_directory, generate_all_statistics
-results = read_results_directory("./tmp/", noise=True)
+from qufi import read_results_directory, generate_all_statistics
+results = read_results_directory("./tmp_try/", noise=True)
 
-generate_all_statistics(results)
+generate_all_statistics(results, savepath="./plots_try")
 # %%
 
-# %%
+

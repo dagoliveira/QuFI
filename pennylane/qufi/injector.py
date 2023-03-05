@@ -16,11 +16,14 @@ from qiskit import transpile
 import pennylane as qml
 import sys
 sys.path.insert(0,'..')
-import networkx as nx
+from qiskit.circuit import QuantumCircuit, ClassicalRegister
+
 
 file_logging = False
 logging_filename = "./qufi.log"
 console_logging = True
+circuit_fodler = "./circuits/"
+circuit_index_fodler = "./circuits_index/"
 
 def log(content):
     """Logging wrapper, can redirect both to stdout and a file"""
@@ -121,8 +124,11 @@ def convert_qasm_circuit(qasm_circuit):
     return qnode
 
 @qml.qfunc_transform
-def pl_insert_gate(tape, index, wire, theta=0, phi=0, lam=0):
+def pl_insert_gate(tape, index, wire, n_qubits, theta=0, phi=0, lam=0):
     """Decorator qfunc_transform which inserts a single fault gate"""
+    # for qubit in range(n_qubits):
+    #     qml.U3(theta=0, phi=0, delta=0, wires=qubit, id="RST")
+
     i = 0
     for gate in tape.operations + tape.measurements:
         # Ignore barriers and measurement gates
@@ -134,26 +140,38 @@ def pl_insert_gate(tape, index, wire, theta=0, phi=0, lam=0):
             qml.apply(gate)
         i = i + 1
 
+
 def pl_generate_circuits(base_circuit, name, theta=0, phi=0, lam=0):
     """Generate all possible fault circuits"""
     mycircuits = []
     inj_info = []
     index_info = []
     n_qubits = base_circuit.device.num_wires
-    tape = base_circuit.tape
+    qubits_m = base_circuit.tape.measurements[0].wires
+    len_qubits_m = len(qubits_m)
+    cbit     = ClassicalRegister(len_qubits_m)
+    shots = 1024
     index = 0
+    tape = base_circuit.tape
     for op in tape.operations:
         for wire in op.wires:
-            shots = 1024
-            transformed_circuit = pl_insert_gate(index, wire, theta, phi, lam)(base_circuit.func)
-            device = qml.device('lightning.qubit', wires=n_qubits, shots=shots)
+            transformed_circuit = pl_insert_gate(index, wire, n_qubits, theta, phi, lam)(base_circuit.func)
+            # device = qml.device('lightning.qubit', wires=n_qubits, shots=shots)
+            device = qml.device('qiskit.aer', wires=n_qubits, shots=shots)
             transformed_qnode = qml.QNode(transformed_circuit, device)
+            transformed_qnode()
             # log(f'Generated single fault circuit: {name} with fault on ({op.name}, wire:{wire}), theta = {theta}, phi = {phi}')
             # print(index)
             # print(wire)
             # print(qml.draw(transformed_qnode)())
             # print()
-            transformed_qnode()
+            if theta == phi == 0:
+                q_c = QuantumCircuit.from_qasm_str(str(device._circuit.qasm()))
+                q_c.remove_final_measurements()
+                q_c.barrier()
+                q_c.add_bits(cbit)
+                q_c.measure(qubits_m, range(len_qubits_m))
+                q_c.draw(output="mpl", filename=str(circuit_index_fodler+name+"_"+str(index)+"_"+str(wire)+".pdf"))
             mycircuits.append(transformed_qnode)
             inj_info.append(wire)
             index_info.append(index)
@@ -193,6 +211,7 @@ def execute_over_range(circuits,
         tstartint = datetime.datetime.now()
         log(f"Circuit {circuit[1]} start: {tstartint}")
         angle_combinations = product(angles['theta0'], angles['phi0'])
+        # angle_combinations = [[0, 0]]
         for angle_pair1 in angle_combinations:
             # Converting the circuit only once at the start of outer loop causes reference bugs (insight needed)
             if isinstance(circuit[0], qml.QNode):
