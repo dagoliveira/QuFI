@@ -14,6 +14,8 @@ from qufi.circuit_generator import Google_4
 from qufi.circuit_generator import Google_2
 from qufi.circuit_generator import Try_0
 from qufi.circuit_generator import Try_1
+from qufi.circuit_generator import Try_2
 from qufi.circuit_generator import anglePair
 from qufi.circuit_generator import anglePair_statevector
 from qufi.results_processing import *
+from qufi.results_processing_fast import *

@@ -178,9 +178,9 @@ def execute_over_range_fast(circuits, results_folder="./tmp_qvf/"):
                 print(data['name'], " can't be read\n")
             else:
                 # qvf_heatmaps.append((data['bloch_vector'], data['state_vector'], data['qvf']))
-                qvf_heatmaps.append([data['bloch_vector'], np.array(data['qvf']), data['name']])
+                qvf_heatmaps.append([data['bloch_vector'], np.array(data['qvf']).round(3), data['name']])
         
-    heatmap_all_0 = [0] * 325
+    heatmap_all_0 = np.array([0] * 325 )
     # print(heatmap_all_0)
 
     # for k in qvf_heatmaps:
@@ -201,20 +201,20 @@ def execute_over_range_fast(circuits, results_folder="./tmp_qvf/"):
             log(f"Unsupported {type(circuit[0])} object, injection stopped.")
             exit()
 
-        log(f"-"*80+"\n"+f"Injecting circuit: {circuit[1]}")
+        name = circuit[1]
+        log(f"-"*80+"\n"+f"Injecting circuit: {name}")
         # r = pl_insert(deepcopy(target_circuit), circuit[1], theta=angle_pair1[0], phi=angle_pair1[1])
         # pl_inject(r)
         #results.append(r)
         bloch_info, inj_info, index_info, n_qubits, qubits_m, tape = pl_generate_circuits(deepcopy(target_circuit), circuit[1])
 
-        qvf_index = []
-        
+        qvf_index = {}        
         qvf     = {}
         qvf     = {"QVF_circuit": np.zeros(325)}
         qvf_occ = {"QVF_circuit": 0}
         for qubit in range(n_qubits):
-            qvf["QVF_circuit_qubit_{}".format(str(qubit))]     = np.zeros(325)
-            qvf_occ["QVF_circuit_qubit_{}".format(str(qubit))] = 0
+            qvf["QVF_qubit_{}".format(str(qubit))]     = np.zeros(325)
+            qvf_occ["QVF_qubit_{}".format(str(qubit))] = 0
         
         # for i in range(len(bloch_info)):
         #     bloch = bloch_info[i]
@@ -262,36 +262,37 @@ def execute_over_range_fast(circuits, results_folder="./tmp_qvf/"):
                     print(heatmap[0])
                     print(heatmap[2])
 
-                    qvf["QVF_circuit_qubit_{}".format(str(inj_info[i]))]     += heatmap[1]
-                    qvf_occ["QVF_circuit_qubit_{}".format(str(inj_info[i]))] += 1
+                    qvf["QVF_qubit_{}".format(str(inj_info[i]))]     += heatmap[1]
+                    qvf_occ["QVF_qubit_{}".format(str(inj_info[i]))] += 1
                     
                     qvf["QVF_circuit"]     += heatmap[1]
                     qvf_occ["QVF_circuit"] += 1
 
-                    qvf_index.append(deepcopy(heatmap[1]))
+                    qvf_index["QVF_index_{}_qubit_{}".format(str(index_info[i]),str(inj_info[i]))] = deepcopy(heatmap[1])
                 else:
                     print("NO MATCH")
             else:
                 print("QVF all 0s!")
 
-                qvf["QVF_circuit_qubit_{}".format(str(inj_info[i]))]     += heatmap_all_0
-                qvf_occ["QVF_circuit_qubit_{}".format(str(inj_info[i]))] += 1
+                qvf["QVF_qubit_{}".format(str(inj_info[i]))]     += heatmap_all_0
+                qvf_occ["QVF_qubit_{}".format(str(inj_info[i]))] += 1
                 
                 qvf["QVF_circuit"]     += heatmap_all_0
                 qvf_occ["QVF_circuit"] += 1
 
-                qvf_index.append(deepcopy(heatmap_all_0))
+                qvf_index["QVF_index_{}_qubit_{}".format(str(index_info[i]),str(inj_info[i]))] = deepcopy(heatmap_all_0)
             print()
         
-        qvf["name"] = circuit[1]
         # qvf["QVF_circuit"] += 3
         qvf["QVF_circuit"] /= (qvf_occ["QVF_circuit"])
+        qvf["QVF_circuit"].round(3)
         for qubit in range(n_qubits):
-            # qvf["QVF_circuit_qubit_{}".format(str(qubit))] += 1
-            qvf["QVF_circuit_qubit_{}".format(str(qubit))] /= (qvf_occ["QVF_circuit_qubit_{}".format(str(qubit))])
+            # qvf["QVF_qubit_{}".format(str(qubit))] += 1
+            qvf["QVF_qubit_{}".format(str(qubit))] /= (qvf_occ["QVF_qubit_{}".format(str(qubit))])
+            qvf["QVF_qubit_{}".format(str(qubit))].round(3)
 
         tmp_name = f"{results_folder}{circuit[1]}.p.gz"
-        save_results([qvf, qvf_index], tmp_name)
+        save_results([qvf, qvf_index, name], tmp_name)
         results_names.append(tmp_name)         
 
         tendint = datetime.datetime.now()

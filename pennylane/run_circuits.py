@@ -4,7 +4,7 @@ import pennylane as qml
 import qiskit
 from qiskit import Aer
 from qiskit.tools.visualization import plot_histogram
-from qufi import execute_over_range, Google_3, BernsteinVazirani, Try_0, Try_1,  read_results_directory, generate_all_statistics
+from qufi import execute_over_range, Google_3, BernsteinVazirani, Try_0, Try_1, Try_2,  read_results_directory, generate_all_statistics
 
 # angles = {'theta':[1, 2], 'phi':[2, 3]}
 circuits = []
@@ -12,14 +12,17 @@ circuits = []
 # c = Google_3.build_circuit()
 # circuits.append((c, 'Google_3'))
 
-bv4_p = BernsteinVazirani.build_circuit()
-circuits.append((bv4_p, 'BernsteinVazirani_4'))
+# bv4_p = BernsteinVazirani.build_circuit()
+# circuits.append((bv4_p, 'BernsteinVazirani_4'))
 
 # try_0 = Try_0.build_circuit()
 # circuits.append((try_0, 'try_0'))
 
 # try_1 = Try_1.build_circuit()
 # circuits.append((try_1, 'try_1'))
+
+try_2 = Try_2.build_circuit()
+circuits.append((try_2, 'try_2'))
 
 #%%
 simulator = Aer.get_backend('qasm_simulator')
